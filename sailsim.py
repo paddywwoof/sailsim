@@ -1,18 +1,39 @@
 #!/usr/bin/python
 from __future__ import absolute_import, division, print_function, unicode_literals
 
+import RPi.GPIO as GPIO
 import random, glob, time
 
 from math import cos, acos, sin, asin, radians, degrees, pi, atan2, hypot
-
 from Noise3D import Noise3D
 
 import sys
 sys.path.append("/home/pi/pi3d")
 import pi3d
 
+# GPIO input
+GPIO.setmode(GPIO.BCM)
+GPIO.setup(23, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+GPIO.setup(24, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+R_POT = 0
+LAST = "00"
+STATE = {"0001":1, "0010":-1, "0100":-1, "0111":1,
+         "1000":1, "1011":-1, "1101":-1, "1110":1}
+
+def rudder_callback(chan):
+  global R_POT, LAST, STATE
+  curr = str(GPIO.input(23)) + str(GPIO.input(24))
+  key = LAST + curr
+  if key in STATE:
+    drctn = STATE[key]
+    LAST = curr
+    R_POT += drctn
+
+GPIO.add_event_detect(24, GPIO.BOTH, callback=rudder_callback)
+GPIO.add_event_detect(23, GPIO.BOTH, callback=rudder_callback)
+
 # Setup display and initialise pi3d
-DISPLAY = pi3d.Display.create(x=250, y=250, frames_per_second=20)
+DISPLAY = pi3d.Display.create(x=50, y=50, frames_per_second=20)
 DISPLAY.set_background(0.4, 0.6, 0.8, 1.0)      # r,g,b,alpha
 # yellowish directional light blueish ambient light
 LIGHT = pi3d.Light(lightpos=(1, -1, -3), lightcol =(1.0, 1.0, 0.8), lightamb=(0.25, 0.2, 0.3))
@@ -24,10 +45,12 @@ matsh = pi3d.Shader("mat_reflect")
 CAMERA = pi3d.Camera((0,0,0), (0,0,-0.1), (1.0, 1000, 60, DISPLAY.width/float(DISPLAY.height)))
 CAM2D = pi3d.Camera(is_3d=False)
 
-WRITEFILE = True
+WRITEFILE = False
 SHEETMIN, SHEETMAX = 5, 100 # degrees
-RUDDERMIN, RUDDERMAX = -pi/2, pi/2 # arbitrary scale
-SPOTMIN, SPOTMAX = 2.0, -2.0 # sheet input abitrary scale would be set by calibration procedure
+RUDDERMIN, RUDDERMAX = -pi/2.0, pi/2.0 # arbitrary scale
+RPOTMIN, RPOTMAX = -20, 20
+#SPOTMIN, SPOTMAX = 2.0, -2.0 # sheet input abitrary scale would be set by calibration procedure
+SPOTMIN, SPOTMAX = 0, 50.0 # sheet input abitrary scale would be set by calibration procedure
 SPOTFACTOR = 50.0
 HIKEMIN, HIKEMAX = 2.0, -2.0 # sheet input abitrary scale would be set by calibration procedure
 LARD = 200.0 # hiking moment in arbrary units
@@ -106,7 +129,7 @@ class Boat(object):
       self.rudder += step
       
   def takeIn(self, step=0.5):
-    if (self.sPot > SPOTMIN):
+    if self.sPot > SPOTMIN:
       self.sPot -= step
       
   def letOut(self, step=0.5):
@@ -271,8 +294,10 @@ tilt = 0.0
 avhgt = 2.0
 
 # init events
-inputs = pi3d.InputEvents()
-inputs.get_mouse_movement()
+#inputs = pi3d.InputEvents()
+#inputs.get_mouse_movement()
+# Fetch key presses
+mykeys = pi3d.Keyboard()
 
 nextTm = e.tm + DT
 i_fr = 0 #water surface image index
@@ -290,8 +315,8 @@ def restart(e, b):
   e.compx, e.compz, e.comph, e.comps = 0.0, 0.0, 0.0, 0.5
   e.prevx, e.prevz, e.prevh, e.prevs = 0.0, 0.0, 0.0, 0.5
 
-# Display scene and rotate cuboid
-while DISPLAY.loop_running() and not (inputs.key_state("KEY_ESC") or inputs.key_state("BTN_BASE3")):
+# Display scene
+while DISPLAY.loop_running():
   lastTm = e.tm
   e.tm = time.time()
   frameTm = e.tm - lastTm
@@ -356,15 +381,15 @@ while DISPLAY.loop_running() and not (inputs.key_state("KEY_ESC") or inputs.key_
   b.xm += dx * b.speed * frameTm
   b.zm += dz * b.speed * frameTm
 
-  inputs.do_input_events()
-  mx, my, mv, mh, md = inputs.get_mouse_movement()
+  #inputs.do_input_events()
+  #mx, my, mv, mh, md = inputs.get_mouse_movement()
   ########## temp do this
   #heading -= (mx)*0.2
-  tilt -= (my)*0.2
-  if mx > 0.0:
-    b.turnRight(mx/1000.0)
-  elif mx < 0.0:
-    b.turnLeft(-mx/1000.0)
+  #tilt -= (my)*0.2
+  #if mx > 0.0:
+  #  b.turnRight(mx/1000.0)
+  #elif mx < 0.0:
+  #  b.turnLeft(-mx/1000.0)
   mark1.draw()
   mark2.draw()
   mark3.draw()
@@ -403,52 +428,58 @@ while DISPLAY.loop_running() and not (inputs.key_state("KEY_ESC") or inputs.key_
         print("error:", err)
         e.posFile.close()
 
-  if inputs.key_state("BTN_LEFT"):
-    b.takeIn()
-  if inputs.key_state("KEY_W"): 
-    b.letOut()
-  if inputs.key_state("BTN_RIGHT"):
-    b.letOut()
-  if inputs.key_state("KEY_S"):
-    b.takeIn()
-  if inputs.key_state("KEY_A"):
-    b.turnLeft()
-  if inputs.key_state("KEY_D"):
-    b.turnRight()
-    
-  #if inputs.key_state("BTN_TOP2"):
-  #  b.takeIn()
-  #if inputs.key_state("BTN_BASE"):
-  #  b.letOut()
-    
-  if inputs.key_state("BTN_BASE4"):
-    restart(e, b)
+  k = mykeys.read()
+  if k >-1:
+    if (k == 27): #esc
+      break
+    elif k == 119:  # w
+      b.letOut()
+    elif k == 115: # s
+      b.takeIn()
+    #elif inputs.key_state("KEY_A"):
+    #  b.turnLeft()
+    #elif inputs.key_state("KEY_D"):
+    #  b.turnRight()
+      
+    #elif inputs.key_state("BTN_TOP2"):
+    #  b.takeIn()
+    #elif inputs.key_state("BTN_BASE"):
+    #  b.letOut()
+      
+    elif k == 120: # x
+      restart(e, b)
+  
+  if R_POT > RPOTMAX:
+    RPOTMAX = R_POT
+  if R_POT < RPOTMIN:
+    RPOTMIN = R_POT
+  b.rudder = - RUDDERMIN - (R_POT - RPOTMIN) / (RPOTMAX - RPOTMIN + 0.001) * (RUDDERMAX - RUDDERMIN)
   #"""    
   #right joystick for the tiller  
-  jx, jy = inputs.get_joystickR()
-  b.rudder = -RUDDERMAX * jx * b.rFactor
-  if abs(jx) > 0.02:
-    if b.rFactor < 0.7:
-      b.rFactor *= 1.010
-  else:
-    b.rFactor = 0.2
+  #jx, jy = inputs.get_joystickR()
+  #b.rudder = -RUDDERMAX * jx * b.rFactor
+  #if abs(jx) > 0.02:
+  #  if b.rFactor < 0.7:
+  #    b.rFactor *= 1.010
+  #else:
+  #  b.rFactor = 0.2
  
   #left joystick x for hiking, y for sheet
-  jx, jy = inputs.get_joystick()
-  if jy < SPOTMIN:
-    SPOTMIN = jy
-  if jy > SPOTMAX:
-    SPOTMAX = jy
-  if jx < HIKEMIN:
-    HIKEMIN = jx
-  if jx > HIKEMAX:
-    HIKEMAX = jx
-  newsPot = 1.0 - 2.0 * (jy - SPOTMIN) / (SPOTMAX - SPOTMIN + 0.001)
-  b.sPot = b.sPot * 0.75 + 0.25 * newsPot * SPOTFACTOR
-  b.hike = -1.0 + 2.0 * (jx - HIKEMIN) / (HIKEMAX - HIKEMIN + 0.001)
+  #jx, jy = inputs.get_joystick()
+  #if jy < SPOTMIN:
+  #  SPOTMIN = jy
+  #if jy > SPOTMAX:
+  #  SPOTMAX = jy
+  #if jx < HIKEMIN:
+  #  HIKEMIN = jx
+  #if jx > HIKEMAX:
+  #  HIKEMAX = jx
+  #newsPot = 1.0 - 2.0 * (jy - SPOTMIN) / (SPOTMAX - SPOTMIN + 0.001)
+  #b.sPot = b.sPot * 0.75 + 0.25 * newsPot * SPOTFACTOR
+  #b.hike = -1.0 + 2.0 * (jx - HIKEMIN) / (HIKEMAX - HIKEMIN + 0.001)
   
-  if not (jy == 0.0):
-    tilt = jy * 0.2
+  #if not (jy == 0.0):
+  #  tilt = jy * 0.2
   #"""
 e.posFile.close()
 DISPLAY.destroy()
