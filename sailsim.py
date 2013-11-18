@@ -13,24 +13,54 @@ import pi3d
 
 # GPIO input
 GPIO.setmode(GPIO.BCM)
-GPIO.setup(23, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+GPIO.setup(23, GPIO.IN, pull_up_down=GPIO.PUD_UP) #rudder
 GPIO.setup(24, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+GPIO.setup(22, GPIO.IN, pull_up_down=GPIO.PUD_UP) #sheet
+GPIO.setup(17, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+GPIO.setup(7, GPIO.IN, pull_up_down=GPIO.PUD_UP) #hike
+GPIO.setup(8, GPIO.IN, pull_up_down=GPIO.PUD_UP)
 R_POT = 0
-LAST = "00"
+S_POT = 0
+H_POT = 0
+R_LAST = "00"
+S_LAST = "00"
+H_LAST = "00"
 STATE = {"0001":1, "0010":-1, "0100":-1, "0111":1,
          "1000":1, "1011":-1, "1101":-1, "1110":1}
 
 def rudder_callback(chan):
-  global R_POT, LAST, STATE
+  global R_POT, R_LAST, STATE
   curr = str(GPIO.input(23)) + str(GPIO.input(24))
-  key = LAST + curr
+  key = R_LAST + curr
   if key in STATE:
     drctn = STATE[key]
-    LAST = curr
+    R_LAST = curr
     R_POT += drctn
+
+def sheet_callback(chan):
+  global S_POT, S_LAST, STATE
+  curr = str(GPIO.input(22)) + str(GPIO.input(17))
+  key = S_LAST + curr
+  if key in STATE:
+    drctn = STATE[key]
+    S_LAST = curr
+    S_POT += drctn
+
+def hike_callback(chan):
+  global H_POT, H_LAST, STATE
+  curr = str(GPIO.input(7)) + str(GPIO.input(8))
+  key = H_LAST + curr
+  if key in STATE:
+    drctn = STATE[key]
+    H_LAST = curr
+    H_POT += drctn
 
 GPIO.add_event_detect(24, GPIO.BOTH, callback=rudder_callback)
 GPIO.add_event_detect(23, GPIO.BOTH, callback=rudder_callback)
+GPIO.add_event_detect(22, GPIO.BOTH, callback=sheet_callback)
+GPIO.add_event_detect(17, GPIO.BOTH, callback=sheet_callback)
+GPIO.add_event_detect(7, GPIO.BOTH, callback=hike_callback)
+GPIO.add_event_detect(8, GPIO.BOTH, callback=hike_callback)
 
 # Setup display and initialise pi3d
 DISPLAY = pi3d.Display.create(x=50, y=50, frames_per_second=20)
@@ -46,14 +76,12 @@ CAMERA = pi3d.Camera((0,0,0), (0,0,-0.1), (1.0, 1000, 60, DISPLAY.width/float(DI
 CAM2D = pi3d.Camera(is_3d=False)
 
 WRITEFILE = False
-SHEETMIN, SHEETMAX = 5, 100 # degrees
 RUDDERMIN, RUDDERMAX = -pi/2.0, pi/2.0 # arbitrary scale
-RPOTMIN, RPOTMAX = -20, 20
-#SPOTMIN, SPOTMAX = 2.0, -2.0 # sheet input abitrary scale would be set by calibration procedure
-SPOTMIN, SPOTMAX = 0, 50.0 # sheet input abitrary scale would be set by calibration procedure
-SPOTFACTOR = 50.0
-HIKEMIN, HIKEMAX = 2.0, -2.0 # sheet input abitrary scale would be set by calibration procedure
-LARD = 200.0 # hiking moment in arbrary units
+RPOTMIN, RPOTMAX = 0, 0
+SHEETMIN, SHEETMAX = 5, 100 # degrees
+SPOTMIN, SPOTMAX = 0, 0 
+HIKEMIN, HIKEMAX = -200.0, 200.0 # hiking moment in arbrary units
+HPOTMIN, HPOTMAX = 0, 0
 ROLLFACTOR = 1.25
 WDIRMIN, WDIRMAX = 5.0, 7.0 # wind direction radians
 WSTRMIN, WSTRMAX = 3, 25 # wind strength m per sec
@@ -67,7 +95,7 @@ SAILINFO = [[1.00,2.16,3.50,4.95,6.06,6.76,7.00,6.76,6.06,4.95,3.50,1.81,0.0],
             1.1*pi,1.25*pi,1.4*pi,1.45*pi,1.49*pi],
             [0,1,2,3,3,3,3,3,3,4,4,4,4]]
 # [0][] -> effective area, [1][] -> lift/drag as an angle
-RUDDERINFO = [[0.01, 0.03, 0.06, 0.08, 0.1, 0.11], 
+RUDDERINFO = [[0.005, 0.02, 0.05, 0.08, 0.11, 0.14], 
             [pi,0.52*pi,0.55*pi,0.6*pi, 0.7*pi, 0.95*pi]]
 
 # environment class containing relevant variables
@@ -112,34 +140,16 @@ class Boat(object):
     for i in range(5):
         self.sImg.append([])
         for j in range(1,5):
-            self.sImg[i].append(pi3d.Texture("models/sail"+str(i)+"0"+str(j)+".png"))
+            self.sImg[i].append(pi3d.Texture("models/sail"+str(i)+"0"+str(j)+".png", flip=True))
     self.sailSeq = 0
 
     self.sail = pi3d.Model(file_string="models/sail.obj", camera=CAMERA)
     self.sail.set_shader(shader)
     self.sail.set_normal_shine(self.sImg[0][0], 1.0)
 
-  #motion control
-  def turnRight(self, step=0.05):
-    if ((self.rudder - step) > RUDDERMIN):
-      self.rudder -= step
-     
-  def turnLeft(self, step=0.05):
-    if ((self.rudder + step) < RUDDERMAX):
-      self.rudder += step
-      
-  def takeIn(self, step=0.5):
-    if self.sPot > SPOTMIN:
-      self.sPot -= step
-      
-  def letOut(self, step=0.5):
-    if (self.sPot < SPOTMAX):
-      self.sPot += step
-
   # manage the physics of winds and forces
   def updateVariables(self, e, burgee, burgee2, tiller):
-    #tiller.rotateToY(180 - degrees(rudder))
-    self.sheet = interpolate([SHEETMIN, SHEETMAX], self.sPot, 0, SPOTFACTOR) * (1 if (self.sheet >= 0) else -1)
+    self.sheet = self.sPot * (1.0 if (self.sheet >= 0) else -1.0)
     wDir = interpolate([WDIRMIN, WDIRMAX], e.noiseDir.generate((int(self.xm/8)) % 128,
                       (int(self.zm/8)) % 128, int((e.tm - e.startTm)/8.0) % 128), -1.0, 1.0)
     e.avWDir = 0.025*wDir + 0.975 * e.avWDir
@@ -174,7 +184,7 @@ class Boat(object):
 
     F = 0.2 * wStrRel * wStrRel * area * cos(radians(self.heel))
     Fheel = F*sin(wDirRel - LDangle*(1 if (wDirRel > 0) else -1))
-    self.roll = ((Fheel - self.hike * LARD)/20 - self.heel) / 4.0 # TODO sitting out force to balance
+    self.roll = ((Fheel - self.hike)/20 - self.heel) / 4.0 # TODO sitting out force to balance
     self.heel += self.roll
     Fdrive = F*cos(wDirRel - LDangle*(1 if (wDirRel > 0) else -1))
 
@@ -273,7 +283,7 @@ boat1 = pi3d.ImageSprite(texture="models/boat.png", shader=flatsh,
 
 def interpolate(valList, valIn, valMin, valMax):
   n = len(valList)
-  val = (float)(valIn - valMin)/(valMax - valMin)*(n - 1.0)
+  val = (float)(valIn - valMin)/(valMax - valMin + 0.00000000001) * (n - 1.0)
   i = int(val)
   if (val <= 0):
     return valList[0]
@@ -290,14 +300,14 @@ b2.hull.set_alpha(0.4)
 b2.sail.set_alpha(0.4)
 
 #avatar camera
-tilt = 0.0
+tilt = -5.0
 avhgt = 2.0
 
 # init events
-#inputs = pi3d.InputEvents()
+inputs = pi3d.InputEvents()
 #inputs.get_mouse_movement()
 # Fetch key presses
-mykeys = pi3d.Keyboard()
+#mykeys = pi3d.Keyboard()
 
 nextTm = e.tm + DT
 i_fr = 0 #water surface image index
@@ -381,15 +391,6 @@ while DISPLAY.loop_running():
   b.xm += dx * b.speed * frameTm
   b.zm += dz * b.speed * frameTm
 
-  #inputs.do_input_events()
-  #mx, my, mv, mh, md = inputs.get_mouse_movement()
-  ########## temp do this
-  #heading -= (mx)*0.2
-  #tilt -= (my)*0.2
-  #if mx > 0.0:
-  #  b.turnRight(mx/1000.0)
-  #elif mx < 0.0:
-  #  b.turnLeft(-mx/1000.0)
   mark1.draw()
   mark2.draw()
   mark3.draw()
@@ -428,58 +429,34 @@ while DISPLAY.loop_running():
         print("error:", err)
         e.posFile.close()
 
-  k = mykeys.read()
-  if k >-1:
-    if (k == 27): #esc
-      break
-    elif k == 119:  # w
-      b.letOut()
-    elif k == 115: # s
-      b.takeIn()
-    #elif inputs.key_state("KEY_A"):
-    #  b.turnLeft()
-    #elif inputs.key_state("KEY_D"):
-    #  b.turnRight()
-      
-    #elif inputs.key_state("BTN_TOP2"):
-    #  b.takeIn()
-    #elif inputs.key_state("BTN_BASE"):
-    #  b.letOut()
-      
-    elif k == 120: # x
-      restart(e, b)
+  inputs.do_input_events()
+  if inputs.key_state("KEY_ESC"):
+    break
+  if inputs.key_state("KEY_X"): # x = restart race but remember rudder and sheet min/max
+    restart(e, b)
+  if inputs.key_state("KEY_R"):  # r = recalibrate min/max
+    RPOTMIN, RPOTMAX = 0, 0
+    SPOTMIN, SPOTMAX = 0, 0
+    HPOTMIN, HPOTMAX = 0, 0
   
   if R_POT > RPOTMAX:
     RPOTMAX = R_POT
   if R_POT < RPOTMIN:
     RPOTMIN = R_POT
-  b.rudder = - RUDDERMIN - (R_POT - RPOTMIN) / (RPOTMAX - RPOTMIN + 0.001) * (RUDDERMAX - RUDDERMIN)
-  #"""    
-  #right joystick for the tiller  
-  #jx, jy = inputs.get_joystickR()
-  #b.rudder = -RUDDERMAX * jx * b.rFactor
-  #if abs(jx) > 0.02:
-  #  if b.rFactor < 0.7:
-  #    b.rFactor *= 1.010
-  #else:
-  #  b.rFactor = 0.2
- 
-  #left joystick x for hiking, y for sheet
-  #jx, jy = inputs.get_joystick()
-  #if jy < SPOTMIN:
-  #  SPOTMIN = jy
-  #if jy > SPOTMAX:
-  #  SPOTMAX = jy
-  #if jx < HIKEMIN:
-  #  HIKEMIN = jx
-  #if jx > HIKEMAX:
-  #  HIKEMAX = jx
-  #newsPot = 1.0 - 2.0 * (jy - SPOTMIN) / (SPOTMAX - SPOTMIN + 0.001)
-  #b.sPot = b.sPot * 0.75 + 0.25 * newsPot * SPOTFACTOR
-  #b.hike = -1.0 + 2.0 * (jx - HIKEMIN) / (HIKEMAX - HIKEMIN + 0.001)
-  
-  #if not (jy == 0.0):
-  #  tilt = jy * 0.2
-  #"""
+  b.rudder = interpolate([RUDDERMIN, RUDDERMAX], R_POT, RPOTMIN, RPOTMAX)
+
+  if S_POT > SPOTMAX:
+    SPOTMAX = S_POT
+  if S_POT < SPOTMIN:
+    SPOTMIN = S_POT
+  b.sPot = interpolate([SHEETMIN, SHEETMAX], S_POT, SPOTMIN, SPOTMAX)
+
+  if H_POT > HIKEMAX:
+    HPOTMAX = H_POT
+  if H_POT < HPOTMIN:
+    HPOTMIN = H_POT
+  b.hike = interpolate([HIKEMIN, HIKEMAX], H_POT, HPOTMIN, HPOTMAX)
+
 e.posFile.close()
 DISPLAY.destroy()
+GPIO.cleanup()
