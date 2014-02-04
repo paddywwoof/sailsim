@@ -10,7 +10,7 @@ import math
 class Noise3D():
  # initialize class with the grid size (inSize), frequency (inFreq) and number of octaves (octs) 
     def __init__(self, inSize, inFreq, octs, seedVal=1):
-        self.perm = range(256)
+        self.perm = [i for i in range(256)]
         random.seed(seedVal)
         random.shuffle(self.perm)
         self.perm += self.perm
