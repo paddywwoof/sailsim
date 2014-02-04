@@ -2,6 +2,7 @@
 from __future__ import absolute_import, division, print_function, unicode_literals
 
 import RPi.GPIO as GPIO
+
 import random, glob, time
 
 from math import cos, acos, sin, asin, radians, degrees, pi, atan2, hypot
@@ -217,7 +218,7 @@ class Boat(object):
       self.wt = -20.0 
 
 # Load textures
-ectex = pi3d.loadECfiles("textures/ecubes", "sbox")
+ectex = pi3d.loadECfiles("textures/ecubes", "yeadon")
 myecube = pi3d.EnvironmentCube(size=900.0, maptype="FACES", camera=CAMERA)
 myecube.set_draw_details(flatsh, ectex)
 
@@ -230,11 +231,11 @@ for f in iFiles:
 nImg = len(wimg)
 shapeshine = pi3d.Texture("textures/stars.jpg")
 
-tSize = 120.0
-water = pi3d.Sprite(w=tSize, h=tSize, camera=CAMERA)
-water.set_draw_details(matsh, [wimg[0], shapeshine], 12.0, 0.6)
-water.set_material((0.0, 0.05, 0.1))
-water.set_fog((0.4, 0.6, 0.8, 0.0),150)
+tSize = 240.0
+water = pi3d.LodSprite(w=tSize, h=tSize, camera=CAMERA, n=8)
+water.set_draw_details(matsh, [wimg[0], shapeshine], 12.0, 0.4)
+water.set_material((0.2, 0.5, 0.6))
+water.set_fog((0.4, 0.6, 0.8, 0.0),120)
 water.rotateToX(89.9999)
 
 # marks
@@ -342,17 +343,6 @@ while DISPLAY.loop_running():
   CAMERA.rotate(tilt, b.heading, 0)
   CAMERA.position((b.xm + xoff, b.ym + avhgt, b.zm + zoff))
   
-  # environment and fog ##########################
-  myecube.position(b.xm, b.ym, b.zm)
-  myecube.draw()
-  
-  # draw water ###################################
-  wox = (wox + dx * b.speed * frameTm * DWO) % 1.0
-  woz = (woz - dz * b.speed * frameTm * DWO) % 1.0
-  water.set_offset((wox, woz))
-  water.position(b.xm, b.ym, b.zm)
-  water.draw()
-      
   # draw hull ####################################
   absheel = degrees(asin(sin(radians(b.heel)) * cos(radians(b.heading))))
   abspitch = degrees(asin(-sin(radians(b.heel)) * sin(radians(b.heading))))
@@ -379,6 +369,17 @@ while DISPLAY.loop_running():
   b2.sail.rotateToY(-e.comph - e.comps)
   b2.sail.draw()
   
+  # environment and fog ##########################
+  myecube.position(b.xm, b.ym, b.zm)
+  myecube.draw()
+  
+  # draw water ###################################
+  wox = (wox + dx * b.speed * frameTm * DWO) % 1.0
+  woz = (woz - dz * b.speed * frameTm * DWO) % 1.0
+  water.set_offset((wox, woz))
+  water.position(b.xm, b.ym, b.zm)
+  water.draw()
+      
   # check time and animate #######################
   if e.tm > e.nextUp:
     b.updateVariables(e, burgee, burgee2, tiller)
