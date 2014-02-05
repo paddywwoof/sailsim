@@ -218,8 +218,8 @@ class Boat(object):
       self.wt = -20.0 
 
 # Load textures
-ectex = pi3d.loadECfiles("textures/ecubes", "yeadon")
-myecube = pi3d.EnvironmentCube(size=900.0, maptype="FACES", camera=CAMERA)
+ectex = pi3d.Texture("textures/ecubes/yeadon.jpg")
+myecube = pi3d.EnvironmentCube(size=900.0, maptype="BLENDER", camera=CAMERA)
 myecube.set_draw_details(flatsh, ectex)
 
 # water cards, normal images for animating water surace
